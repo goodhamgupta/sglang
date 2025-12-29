@@ -189,6 +189,11 @@ class ModelConfig:
             and is_multimodal_chunked_prefill_supported(self.hf_config.architectures)
         )
         self.is_encoder_decoder = is_encoder_decoder_model(self.hf_config.architectures)
+        # Check if model is a multi-vector embedding model (like ColQwen3)
+        # that requires per-token embeddings and should skip prefix caching
+        self.is_multivector_embedding = is_multivector_embedding_model(
+            self.hf_config.architectures
+        )
         self.dtype = _get_and_verify_dtype(self.hf_text_config, dtype)
 
         # Derive context length and model shapes
@@ -1096,6 +1101,28 @@ multimodal_model_archs = [
 
 if external_mm_model_arch := envs.SGLANG_EXTERNAL_MM_MODEL_ARCH.get():
     multimodal_model_archs.append(external_mm_model_arch)
+
+
+# Multi-vector embedding models that require per-token embeddings
+# These models should NOT use prefix caching because they need all token embeddings
+# (not just the new tokens after a cache hit)
+multivector_embedding_model_archs = [
+    "ColQwen3",
+    # Add other ColPali-style models here as needed
+]
+
+
+def is_multivector_embedding_model(model_architectures: List[str]):
+    """Check if the model is a multi-vector embedding model.
+
+    Multi-vector embedding models (like ColQwen3, ColPali) output per-token
+    embeddings rather than a single pooled embedding. These models should
+    NOT use prefix caching because they need embeddings for ALL tokens,
+    not just the newly processed tokens after a cache hit.
+    """
+    return any(
+        arch in model_architectures for arch in multivector_embedding_model_archs
+    )
 
 
 def is_multimodal_model(model_architectures: List[str]):

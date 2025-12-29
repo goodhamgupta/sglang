@@ -968,7 +968,12 @@ class SchedulerDisaggregationDecodeMixin:
             if i < num_not_used_batch:
                 can_run_list.append(req)
                 req.add_latency(RequestStage.DECODE_WAITING)
-                req.init_next_round_input(self.tree_cache)
+                # For multi-vector embedding models (like ColQwen3), skip prefix caching
+                # because they need per-token embeddings for ALL tokens
+                if self.model_config.is_multivector_embedding:
+                    req.init_next_round_input(None)
+                else:
+                    req.init_next_round_input(self.tree_cache)
             else:
                 waiting_queue.append(req)
 
