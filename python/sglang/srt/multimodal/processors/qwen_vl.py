@@ -307,6 +307,15 @@ class QwenVLImageProcessor(SGLangBaseProcessor):
         **kwargs,
     ):
         entry_time = time.perf_counter()
+        rid = getattr(request_obj, "rid", "anonymous_rid")
+
+        # ColQwen3's HF processor constructs its own prompts with image tokens,
+        # so we bypass the normal load_mm_data flow and pass images directly
+        if self.hf_config.model_type == "colqwen3":
+            return await self._process_colqwen3_async(
+                image_data, input_text, request_obj, entry_time, rid
+            )
+
         base_output = self.load_mm_data(
             prompt=input_text,
             image_data=image_data,
@@ -315,7 +324,6 @@ class QwenVLImageProcessor(SGLangBaseProcessor):
             multimodal_tokens=self.mm_tokens,
         )
         load_time = time.perf_counter()
-        rid = getattr(request_obj, "rid", "anonymous_rid")
 
         video_metadata = None
         if base_output.videos:
@@ -417,3 +425,128 @@ class QwenVLImageProcessor(SGLangBaseProcessor):
             "mrope_positions": mrope_positions,
             "mrope_position_delta": mrope_position_delta,
         }
+
+    async def _process_colqwen3_async(
+        self,
+        image_data: List[Union[str, bytes]],
+        input_text: str,
+        request_obj,
+        entry_time: float,
+        rid: str,
+    ):
+        """
+        Special processing for ColQwen3 embedding model.
+
+        ColQwen3's HF processor constructs its own prompts with image tokens,
+        so we bypass the normal load_mm_data flow and pass images directly
+        to the HF processor.
+        """
+        # Load images directly using the base loader
+        images = []
+        if image_data:
+            for img_source in image_data:
+                if img_source is None:
+                    continue
+                # Load image from URL or bytes
+                img = self._load_single_image_sync(img_source)
+                if img is not None:
+                    images.append(img)
+
+        load_time = time.perf_counter()
+
+        # Strip any image tokens from input_text since HF processor will add its own
+        clean_text = input_text
+        if self.mm_tokens.image_token:
+            clean_text = clean_text.replace(self.mm_tokens.image_token, "").strip()
+
+        # Call the HF processor directly
+        processor_kwargs = {}
+        if images:
+            processor_kwargs["images"] = images
+            # ColQwen3's visual_prompt_prefix already contains "Describe the image."
+            # so we only pass extra text if it's different from the default
+            # to avoid duplication like "Describe the image. Describe the image."
+            default_prompts = ["Describe the image.", "Describe the image", ""]
+            if clean_text.lower().rstrip(".") in [p.lower().rstrip(".") for p in default_prompts]:
+                clean_text = ""
+
+        ret = self._processor(
+            text=[clean_text] if clean_text else [""],
+            padding=True,
+            return_tensors="pt",
+            **processor_kwargs,
+        )
+
+        process_time = time.perf_counter()
+
+        input_ids = ret["input_ids"].flatten()
+
+        # Compute image token offsets from input_ids
+        image_offsets = self.get_mm_items_offset_by_pair(
+            input_ids, self.vision_start_token_id, self.vision_end_token_id
+        )
+
+        # Collect mm_items from processor output and set offsets
+        mm_items = self.collect_mm_items_from_processor_output(ret)
+        for item in mm_items:
+            if item.modality == Modality.IMAGE:
+                item.offsets = image_offsets
+
+        # Get image grid info for MRoPE
+        image_grid_thw = getattr(ret, "image_grid_thw", None)
+
+        # Compute MRoPE positions
+        # Use "qwen3_vl" as model_type since ColQwen3 is based on Qwen3-VL architecture
+        mrope_model_type = "qwen3_vl" if self.model_type == "colqwen3" else self.model_type
+        mrope_positions, mrope_position_delta = MRotaryEmbedding.get_rope_index(
+            spatial_merge_size=self.hf_config.vision_config.spatial_merge_size,
+            image_token_id=self.mm_tokens.image_token_id,
+            video_token_id=self.mm_tokens.video_token_id,
+            vision_start_token_id=self.vision_start_token_id,
+            model_type=mrope_model_type,
+            tokens_per_second=getattr(
+                self.hf_config.vision_config, "tokens_per_second", None
+            ),
+            input_ids=input_ids.unsqueeze(0),
+            image_grid_thw=image_grid_thw,
+            video_grid_thw=None,
+            second_per_grid_ts=None,
+            use_audio_in_video=False,
+            audio_seqlens=None,
+            audio_token_id=None,
+            audio_start_token_id=None,
+            position_id_per_seconds=None,
+        )
+        mrope_positions = mrope_positions.squeeze(1)
+
+        logger.debug(
+            f"[ColQwen3Processor Perf] {rid=}, "
+            f"load_time: {(load_time - entry_time) * 1000:.2f} ms, "
+            f"process_time: {(process_time - load_time) * 1000:.2f} ms, "
+            f"total_time: {(time.perf_counter() - entry_time) * 1000:.2f} ms"
+        )
+
+        return {
+            "input_ids": input_ids.tolist(),
+            "mm_items": mm_items,
+            "im_start_id": self.vision_start_token_id,
+            "im_end_id": self.vision_end_token_id,
+            "im_token_id": self.mm_tokens.image_token_id,
+            "video_token_id": self.mm_tokens.video_token_id,
+            "audio_token_id": self.mm_tokens.audio_token_id,
+            "mrope_positions": mrope_positions,
+            "mrope_position_delta": mrope_position_delta,
+        }
+
+    def _load_single_image_sync(self, img_source: Union[str, bytes]) -> Image.Image:
+        """Load a single image from URL or bytes (synchronous)."""
+        from sglang.srt.utils import load_image
+
+        try:
+            img, _ = load_image(img_source)
+            if img.mode != "RGB":
+                img = img.convert("RGB")
+            return img
+        except Exception as e:
+            logger.warning(f"Failed to load image: {e}")
+            return None
