@@ -935,6 +935,22 @@ register_conv_template(
     )
 )
 
+# ColQwen3 embedding model - minimal template that just adds image token
+# No chat formatting, just image_token + text for multimodal embeddings
+register_conv_template(
+    Conversation(
+        name="colqwen3-embed",
+        system_message="",
+        system_template="",
+        roles=("", ""),
+        sep="",
+        sep_style=SeparatorStyle.NO_COLON_SINGLE,
+        stop_str="",
+        image_token="<|vision_start|><|image_pad|><|vision_end|>",
+        video_token="<|vision_start|><|video_pad|><|vision_end|>",
+    )
+)
+
 # Reference: https://huggingface.co/openbmb/MiniCPM-V-2_6#usage
 register_conv_template(
     Conversation(
@@ -1127,3 +1143,16 @@ def match_paddle_ocr(model_path: str):
         return "paddle-ocr"
     model_type = get_model_type(model_path)
     return MODEL_TYPE_TO_TEMPLATE.get(model_type)
+
+
+@register_conv_template_matching_function
+def match_colqwen3(model_path: str):
+    """Match ColQwen3 embedding models to use minimal template."""
+    if "colqwen3" in model_path.lower():
+        return "colqwen3-embed"
+    model_type = get_model_type(model_path)
+    if model_type == "colqwen3":
+        return "colqwen3-embed"
+    return None
+
+

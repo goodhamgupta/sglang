@@ -13,6 +13,7 @@ from torchvision.transforms import InterpolationMode
 from sglang.srt.environ import envs
 from sglang.srt.layers.rotary_embedding import MRotaryEmbedding
 from sglang.srt.managers.schedule_batch import Modality, MultimodalDataItem
+from sglang.srt.models.colqwen3 import ColQwen3
 from sglang.srt.models.qwen2_5_vl import Qwen2_5_VLForConditionalGeneration
 from sglang.srt.models.qwen2_vl import Qwen2VLForConditionalGeneration
 from sglang.srt.models.qwen3_omni_moe import Qwen3OmniMoeForConditionalGeneration
@@ -227,6 +228,7 @@ class QwenVLImageProcessor(SGLangBaseProcessor):
         Qwen3VLForConditionalGeneration,
         Qwen3VLMoeForConditionalGeneration,
         Qwen3OmniMoeForConditionalGeneration,
+        ColQwen3,
     ]
 
     def __init__(self, hf_config, server_args, _processor, *args, **kwargs):
@@ -326,7 +328,7 @@ class QwenVLImageProcessor(SGLangBaseProcessor):
         preprocess_time = time.perf_counter()
 
         # NOTE: for qwen3-vl, video_meta need to be passed in, since do_sample_frames is already done in preprocess_video
-        if self.hf_config.model_type in ("qwen3_vl", "qwen3_vl_moe"):
+        if self.hf_config.model_type in ("qwen3_vl", "qwen3_vl_moe", "colqwen3"):
             mm_items, input_ids, ret = self.process_and_combine_mm_data(
                 base_output,
                 self.mm_tokens,
