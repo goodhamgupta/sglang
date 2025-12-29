@@ -96,14 +96,18 @@ class OpenAIServingEmbedding(OpenAIServingBase):
 
                 generate_prompts = []
                 # Check if we have a chat template for multimodal embeddings
+                print(f"[DEBUG] chat_template_name: {self.template_manager.chat_template_name}")
+                print(f"[DEBUG] texts: {texts}, images: {images}")
                 if self.template_manager.chat_template_name is not None:
                     convs = generate_embedding_convs(
                         texts, images, self.template_manager.chat_template_name
                     )
                     for conv in convs:
                         generate_prompts.append(conv.get_prompt())
+                    print(f"[DEBUG] generate_prompts: {generate_prompts}")
                 else:
                     generate_prompts = texts
+                    print(f"[DEBUG] No template, using raw texts: {generate_prompts}")
 
                 if len(generate_prompts) == 1:
                     prompt_kwargs = {

@@ -540,7 +540,7 @@ def generate_embedding_convs(
         if image is not None:
             image_token = (
                 conv.image_token + "\n"
-                if conv.name != "gme-qwen2-vl"
+                if conv.name not in ("gme-qwen2-vl", "colqwen3-embed")
                 else conv.image_token
             )
             real_content += image_token
@@ -935,8 +935,9 @@ register_conv_template(
     )
 )
 
-# ColQwen3 embedding model - minimal template that just adds image token
-# No chat formatting, just image_token + text for multimodal embeddings
+# ColQwen3 embedding model - minimal template for text only
+# ColQwen3's HF processor constructs its own prompts with image/video tokens,
+# so we don't add them here to avoid duplication
 register_conv_template(
     Conversation(
         name="colqwen3-embed",
@@ -946,8 +947,8 @@ register_conv_template(
         sep="",
         sep_style=SeparatorStyle.NO_COLON_SINGLE,
         stop_str="",
-        image_token="<|vision_start|><|image_pad|><|vision_end|>",
-        video_token="<|vision_start|><|video_pad|><|vision_end|>",
+        image_token="",
+        video_token="",
     )
 )
 
