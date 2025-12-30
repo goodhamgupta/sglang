@@ -1596,6 +1596,9 @@ class Scheduler(
             self.handle_generate_request(tokenized_req)
 
     def _prefetch_kvcache(self, req: Req):
+        # Skip prefix caching for multi-vector embedding models (like ColQwen3)
+        if self.model_config.is_multivector_embedding:
+            return
         if self.enable_hicache_storage:
             req.init_next_round_input(self.tree_cache)
             if req.last_node.backuped:
@@ -1974,7 +1977,12 @@ class Scheduler(
                     # skip staging requests that are ongoing prefetch
                     continue
 
-            req.init_next_round_input(self.tree_cache)
+            # For multi-vector embedding models (like ColQwen3), skip prefix caching
+            # because they need per-token embeddings for ALL tokens, not just new ones
+            if self.model_config.is_multivector_embedding:
+                req.init_next_round_input(None)
+            else:
+                req.init_next_round_input(self.tree_cache)
             res = adder.add_one_req(
                 req,
                 has_chunked_req=(self.chunked_req is not None),

@@ -79,12 +79,35 @@ class OpenAIServingEmbedding(OpenAIServingBase):
         """Convert OpenAI embedding request to internal format"""
         prompt = request.input
 
+        # Check if this is a ColQwen3 model - text-only requests need special handling
+        is_colqwen3 = (
+            self.template_manager.chat_template_name == "colqwen3-embed"
+        )
+
+        def add_colqwen3_query_suffix(text: str) -> str:
+            """Add 10 query augmentation tokens (pad tokens) for ColQwen3 text queries."""
+            # ColQwen3 uses pad_token as query augmentation token, repeated 10 times
+            pad_token = getattr(self.tokenizer_manager.tokenizer, "pad_token", None)
+            if pad_token:
+                return text + pad_token * 10
+            return text
+
         if isinstance(prompt, str):
             # Single string input
-            prompt_kwargs = {"text": prompt}
+            if is_colqwen3:
+                # ColQwen3 text queries need query augmentation tokens (10 pad tokens)
+                prompt_kwargs = {"text": add_colqwen3_query_suffix(prompt)}
+            else:
+                prompt_kwargs = {"text": prompt}
         elif isinstance(prompt, list):
             if len(prompt) > 0 and isinstance(prompt[0], str):
-                prompt_kwargs = {"text": prompt}
+                if is_colqwen3:
+                    # ColQwen3: add query augmentation tokens to each text
+                    prompt_kwargs = {
+                        "text": [add_colqwen3_query_suffix(p) for p in prompt]
+                    }
+                else:
+                    prompt_kwargs = {"text": prompt}
             elif len(prompt) > 0 and isinstance(prompt[0], MultimodalEmbeddingInput):
                 # Handle multimodal embedding inputs
                 texts = []
@@ -96,14 +119,18 @@ class OpenAIServingEmbedding(OpenAIServingBase):
 
                 generate_prompts = []
                 # Check if we have a chat template for multimodal embeddings
+                print(f"[DEBUG] chat_template_name: {self.template_manager.chat_template_name}")
+                print(f"[DEBUG] texts: {texts}, images: {images}")
                 if self.template_manager.chat_template_name is not None:
                     convs = generate_embedding_convs(
                         texts, images, self.template_manager.chat_template_name
                     )
                     for conv in convs:
                         generate_prompts.append(conv.get_prompt())
+                    print(f"[DEBUG] generate_prompts: {generate_prompts}")
                 else:
                     generate_prompts = texts
+                    print(f"[DEBUG] No template, using raw texts: {generate_prompts}")
 
                 if len(generate_prompts) == 1:
                     prompt_kwargs = {

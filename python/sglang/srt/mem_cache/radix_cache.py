@@ -571,6 +571,9 @@ class RadixCache(BasePrefixCache):
     def inc_lock_ref(self, node: TreeNode):
         if self.disable:
             return 0
+        # Handle None node (e.g., for multi-vector embedding models that skip prefix caching)
+        if node is None:
+            return 0
 
         delta = 0
         while node != self.root_node:
@@ -584,6 +587,9 @@ class RadixCache(BasePrefixCache):
 
     def dec_lock_ref(self, node: TreeNode):
         if self.disable:
+            return 0
+        # Handle None node (e.g., for multi-vector embedding models that skip prefix caching)
+        if node is None:
             return 0
 
         delta = 0

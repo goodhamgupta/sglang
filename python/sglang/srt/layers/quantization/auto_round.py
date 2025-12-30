@@ -118,6 +118,22 @@ class AutoRoundConfig(QuantizationConfig):
             ),
         )
 
+    def apply_sglang_mapper(self, hf_to_sglang_mapper: "WeightsMapper"):
+        """Transform quantization config layer names from HuggingFace format to SGLang format.
+
+        This is necessary because models like ColQwen3 remap weight prefixes
+        (e.g., 'vlm.model.language_model.' -> 'model.') and the quantization
+        config's block_name_to_quantize must be updated accordingly.
+        """
+        from sglang.srt.models.utils import WeightsMapper
+
+        if self.block_name_to_quantize:
+            self.block_name_to_quantize = hf_to_sglang_mapper.apply_list(
+                self.block_name_to_quantize
+            )
+        if self.extra_config:
+            self.extra_config = hf_to_sglang_mapper.apply_dict(self.extra_config)
+
     def get_scaled_act_names(self) -> list[str]:
         """Returns the activation function names that should be post-scaled.
 

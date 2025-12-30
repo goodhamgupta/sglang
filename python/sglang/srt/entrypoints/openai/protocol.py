@@ -795,7 +795,9 @@ class EmbeddingRequest(BaseModel):
 
 
 class EmbeddingObject(BaseModel):
-    embedding: List[float]
+    # Support both single-vector (List[float]) and multi-vector (List[List[float]]) embeddings
+    # Multi-vector embeddings are used by models like ColQwen3 that return per-token embeddings
+    embedding: Union[List[float], List[List[float]]]
     index: int
     object: str = "embedding"
 
